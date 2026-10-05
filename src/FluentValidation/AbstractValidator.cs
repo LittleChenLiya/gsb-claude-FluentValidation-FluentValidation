@@ -166,6 +166,12 @@ public abstract partial class AbstractValidator<T> : IValidator<T>, IEnumerable<
 			if (ClassLevelCascadeMode == CascadeMode.Stop && result.Errors.Count > totalFailures) {
 				// Bail out if we're "failing-fast". Check to see if the number of failures
 				// has been increased by this rule (which could've generated 1 or more failures).
+				// Record the rules that will not run because of this stop, preserving
+				// the cascade as the source of the stop in the execution report.
+				for (int j = i + 1; j < count; j++) {
+					context.RecordRuleStoppedByCascade(Rules[j]);
+				}
+
 				break;
 			}
 		}

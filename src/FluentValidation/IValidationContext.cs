@@ -182,6 +182,54 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 
 	private Dictionary<string, Dictionary<T, bool>> _sharedConditionCache;
 
+	private List<RuleExecutionRecord> _ruleExecutionLog;
+
+	/// <summary>
+	/// The rule execution report collected during this validation run.
+	/// Only populated when the report has been enabled for this context.
+	/// The log lives on the context instance, so separate (including concurrent)
+	/// validation runs never share or chain a report.
+	/// </summary>
+	internal List<RuleExecutionRecord> RuleExecutionLog => _ruleExecutionLog;
+
+	/// <summary>
+	/// Enables the rule execution report for this context.
+	/// </summary>
+	internal void EnableRuleExecutionReport() => _ruleExecutionLog ??= new List<RuleExecutionRecord>();
+
+	/// <summary>
+	/// Records the execution outcome of a rule. This is a no-op unless the report
+	/// has been enabled for this context, and never invokes any validators.
+	/// </summary>
+	internal void RecordRuleExecution(string path, RuleExecutionCategory category)
+		=> _ruleExecutionLog?.Add(new RuleExecutionRecord(path, category));
+
+	/// <summary>
+	/// Records a rule that will not run because execution was stopped by a class-level
+	/// cascade, preserving the source of the stop. Any of its own dependent rules are
+	/// recorded as not executed.
+	/// </summary>
+	internal void RecordRuleStoppedByCascade(IValidationRule rule) {
+		if (_ruleExecutionLog == null) return;
+		RecordRuleExecution(PropertyChain.BuildPropertyPath(rule.PropertyName ?? string.Empty), RuleExecutionCategory.StoppedByCascade);
+		RecordDependentRulesNotExecuted(rule);
+	}
+
+	/// <summary>
+	/// Recursively records dependent rules that were not executed because their parent
+	/// rule did not succeed. Each record uses the dependent rule's own path.
+	/// </summary>
+	internal void RecordDependentRulesNotExecuted(IValidationRule rule) {
+		if (_ruleExecutionLog == null) return;
+		var dependentRules = rule.DependentRules;
+		if (dependentRules == null) return;
+
+		foreach (var dependentRule in dependentRules) {
+			RecordRuleExecution(PropertyChain.BuildPropertyPath(dependentRule.PropertyName ?? string.Empty), RuleExecutionCategory.NotExecuted);
+			RecordDependentRulesNotExecuted(dependentRule);
+		}
+	}
+
 	/// <summary>
 	/// Shared condition results cache.
 	/// The key of the outer dictionary is the ID of the condition, and its value is the cache for that condition.
@@ -250,6 +298,7 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 			RootContextData = RootContextData,
 			_parentContext = preserveParentContext ? this : null,
 			IsAsync = IsAsync,
+			_ruleExecutionLog = _ruleExecutionLog,
 		};
 	}
 

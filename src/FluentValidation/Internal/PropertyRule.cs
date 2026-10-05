@@ -24,6 +24,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Results;
 
 /// <summary>
 /// Defines a rule associated with a property.
@@ -68,12 +69,14 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 
 		if (Condition != null) {
 			if (!Condition(context)) {
+				context.RecordRuleExecution(propertyPath, RuleExecutionCategory.SkippedByCondition);
 				return;
 			}
 		}
 
 		if (AsyncCondition != null) {
 				if (!await AsyncCondition(context, cancellation)) {
+					context.RecordRuleExecution(propertyPath, RuleExecutionCategory.SkippedByAsyncCondition);
 					return;
 				}
 #if SYNC_ONLY
@@ -87,13 +90,17 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 
 		var cascade = CascadeMode;
 		var totalFailures = context.Failures.Count;
+		bool stoppedByCascade = false;
+		bool skippedByAsyncCondition = false;
 
 		context.InitializeForPropertyValidator(propertyPath, _displayNameFunc, PropertyName);
 
 		// Invoke each validator and collect its results.
-		foreach (var component in Components) {
+		for (int index = 0; index < Components.Count; index++) {
 			cancellation.ThrowIfCancellationRequested();
 			context.MessageFormatter.Reset();
+
+			var component = Components[index];
 
 			if (!component.InvokeCondition(context)) {
 				continue;
@@ -101,6 +108,7 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 
 			if (component.HasAsyncCondition) {
 				if (!await component.InvokeAsyncCondition(context, cancellation)) {
+					skippedByAsyncCondition = true;
 					continue;
 				}
 #if SYNC_ONLY
@@ -130,8 +138,24 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 			// If there has been at least one failure, and our CascadeMode has been set to Stop
 			// then don't continue to the next rule
 			if (context.Failures.Count > totalFailures && cascade == CascadeMode.Stop) {
+				// Only attribute the stop to the cascade if it actually prevented
+				// subsequent validators in this rule from running.
+				stoppedByCascade = index < Components.Count - 1;
 				break;
 			}
+		}
+
+		// Record the outcome of this rule in the execution report (no-op unless the report is enabled).
+		if (context.Failures.Count > totalFailures) {
+			context.RecordRuleExecution(propertyPath, stoppedByCascade ? RuleExecutionCategory.StoppedByCascade : RuleExecutionCategory.Failed);
+		}
+		else if (first && Components.Count > 0) {
+			// No validator in this rule was executed because the conditions excluded them
+			// all. This is not a pass: attribute the skip to the (async) condition.
+			context.RecordRuleExecution(propertyPath, skippedByAsyncCondition ? RuleExecutionCategory.SkippedByAsyncCondition : RuleExecutionCategory.SkippedByCondition);
+		}
+		else {
+			context.RecordRuleExecution(propertyPath, RuleExecutionCategory.Succeeded);
 		}
 
 		if (context.Failures.Count <= totalFailures && DependentRules != null) {
@@ -139,6 +163,12 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 				cancellation.ThrowIfCancellationRequested();
 				await dependentRule.ValidateAsync(context, cancellation);
 			}
+		}
+		else if (DependentRules != null) {
+			// The parent rule did not succeed, so its dependent rules are not entered.
+			// Record them explicitly as not executed (by their own identity) rather
+			// than leaving them out or treating them as passed.
+			context.RecordDependentRulesNotExecuted(this);
 		}
 	}
 

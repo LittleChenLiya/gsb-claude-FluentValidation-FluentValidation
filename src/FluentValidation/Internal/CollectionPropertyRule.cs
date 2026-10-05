@@ -27,6 +27,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Results;
 
 /// <summary>
 /// Rule definition for collection properties
@@ -93,12 +94,14 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		if (Condition != null) {
 			if (!Condition(context)) {
+				context.RecordRuleExecution(propertyName, RuleExecutionCategory.SkippedByCondition);
 				return;
 			}
 		}
 
 		if (AsyncCondition != null) {
 			if (!await AsyncCondition(context, cancellation)) {
+				context.RecordRuleExecution(propertyName, RuleExecutionCategory.SkippedByAsyncCondition);
 				return;
 			}
 #if SYNC_ONLY
@@ -111,6 +114,8 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		if (filteredValidators.Count == 0) {
 			// If there are no property validators to execute after running the conditions, bail out.
+			// This is not a pass: attribute the skip to the (async) condition that excluded them.
+			context.RecordRuleExecution(propertyName, Components.Any(c => c.HasAsyncCondition) ? RuleExecutionCategory.SkippedByAsyncCondition : RuleExecutionCategory.SkippedByCondition);
 			return;
 		}
 
@@ -126,6 +131,7 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		int count = 0;
 		int totalFailures = context.Failures.Count;
+		bool stoppedByCascade = false;
 
 		if (collection != null) {
 			if (string.IsNullOrEmpty(propertyName)) {
@@ -181,6 +187,7 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 					// If there has been at least one failure, and our CascadeMode has been set to Stop
 					// then don't continue to the next rule
 					if (context.Failures.Count > totalFailuresInner && cascade == CascadeMode.Stop) {
+						stoppedByCascade = true;
 						context.RestoreState();
 						goto AfterValidate; // 🙃
 					}
@@ -192,11 +199,25 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		AfterValidate:
 
+		// Record the outcome of this rule in the execution report (no-op unless the report is enabled).
+		if (context.Failures.Count > totalFailures) {
+			context.RecordRuleExecution(propertyName, stoppedByCascade ? RuleExecutionCategory.StoppedByCascade : RuleExecutionCategory.Failed);
+		}
+		else {
+			context.RecordRuleExecution(propertyName, RuleExecutionCategory.Succeeded);
+		}
+
 		if (context.Failures.Count <= totalFailures && DependentRules != null) {
 			foreach (var dependentRule in DependentRules) {
 				cancellation.ThrowIfCancellationRequested();
 				await dependentRule.ValidateAsync(context, cancellation);
 			}
+		}
+		else if (DependentRules != null) {
+			// The parent rule did not succeed, so its dependent rules are not entered.
+			// Record them explicitly as not executed (by their own identity) rather
+			// than leaving them out or treating them as passed.
+			context.RecordDependentRulesNotExecuted(this);
 		}
 	}
 
