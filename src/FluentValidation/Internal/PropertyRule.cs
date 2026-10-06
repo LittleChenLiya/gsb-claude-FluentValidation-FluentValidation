@@ -24,6 +24,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using FluentValidation.Results;
 
 /// <summary>
 /// Defines a rule associated with a property.
@@ -68,12 +69,16 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 
 		if (Condition != null) {
 			if (!Condition(context)) {
+				context.ExecutionReport.Add(propertyPath, RuleExecutionCategory.ConditionNotMet);
+				RecordDependentRulesNotExecuted(context);
 				return;
 			}
 		}
 
 		if (AsyncCondition != null) {
 				if (!await AsyncCondition(context, cancellation)) {
+					context.ExecutionReport.Add(propertyPath, RuleExecutionCategory.ConditionNotMet);
+					RecordDependentRulesNotExecuted(context);
 					return;
 				}
 #if SYNC_ONLY
@@ -83,6 +88,8 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 		}
 
 		bool first = true;
+		bool anyComponentExecuted = false;
+		bool cascadeStopped = false;
 		TProperty propValue = default(TProperty);
 
 		var cascade = CascadeMode;
@@ -109,6 +116,8 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 #endif
 			}
 
+			anyComponentExecuted = true;
+
 			if (first) {
 				first = false;
 				try {
@@ -130,8 +139,23 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 			// If there has been at least one failure, and our CascadeMode has been set to Stop
 			// then don't continue to the next rule
 			if (context.Failures.Count > totalFailures && cascade == CascadeMode.Stop) {
+				cascadeStopped = true;
 				break;
 			}
+		}
+
+		// Record the outcome of this rule in the context's execution report.
+		// A rule that halted its remaining validators via CascadeMode.Stop is attributed
+		// as the source of the stop; a rule whose conditions prevented any validator from
+		// running is attributed as ConditionNotMet rather than as a pass or a failure.
+		if (context.Failures.Count > totalFailures) {
+			context.ExecutionReport.Add(propertyPath, cascadeStopped ? RuleExecutionCategory.CascadeStopped : RuleExecutionCategory.Failed);
+		}
+		else if (!anyComponentExecuted && Components.Count > 0) {
+			context.ExecutionReport.Add(propertyPath, RuleExecutionCategory.ConditionNotMet);
+		}
+		else {
+			context.ExecutionReport.Add(propertyPath, RuleExecutionCategory.Succeeded);
 		}
 
 		if (context.Failures.Count <= totalFailures && DependentRules != null) {
@@ -139,6 +163,12 @@ internal partial class PropertyRule<T, TProperty> : RuleBase<T, TProperty, TProp
 				cancellation.ThrowIfCancellationRequested();
 				await dependentRule.ValidateAsync(context, cancellation);
 			}
+		}
+		else if (DependentRules != null) {
+			// The rule did not succeed, so its dependent rules were never entered.
+			// Record them explicitly as not executed rather than leaving them out of
+			// the report (or worse, implying they passed).
+			RecordDependentRulesNotExecuted(context);
 		}
 	}
 

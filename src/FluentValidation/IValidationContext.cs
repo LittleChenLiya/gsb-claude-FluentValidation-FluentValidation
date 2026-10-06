@@ -179,6 +179,17 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 	/// </summary>
 	public bool ThrowOnFailures { get; internal set; }
 
+	private RuleExecutionReport _executionReport;
+
+	/// <summary>
+	/// An explicit report of which rules were executed during this validation run and how
+	/// each rule concluded (including dependent rules that were never executed because
+	/// their parent rule did not succeed). The report lives on the context instance, so it
+	/// is never shared between separate Validate/ValidateAsync calls; child contexts created
+	/// within the same call share the root context's report.
+	/// </summary>
+	public RuleExecutionReport ExecutionReport => _executionReport ??= new RuleExecutionReport();
+
 
 	private Dictionary<string, Dictionary<T, bool>> _sharedConditionCache;
 
@@ -250,6 +261,9 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 			RootContextData = RootContextData,
 			_parentContext = preserveParentContext ? this : null,
 			IsAsync = IsAsync,
+			// Share the execution report within a single validation call so that rules
+			// executed by child validators are recorded against the root context's report.
+			_executionReport = ExecutionReport,
 		};
 	}
 

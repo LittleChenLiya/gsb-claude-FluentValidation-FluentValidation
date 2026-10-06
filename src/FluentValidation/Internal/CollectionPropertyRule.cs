@@ -27,6 +27,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using FluentValidation.Results;
 
 /// <summary>
 /// Rule definition for collection properties
@@ -93,12 +94,16 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		if (Condition != null) {
 			if (!Condition(context)) {
+				context.ExecutionReport.Add(propertyName, RuleExecutionCategory.ConditionNotMet);
+				RecordDependentRulesNotExecuted(context);
 				return;
 			}
 		}
 
 		if (AsyncCondition != null) {
 			if (!await AsyncCondition(context, cancellation)) {
+				context.ExecutionReport.Add(propertyName, RuleExecutionCategory.ConditionNotMet);
+				RecordDependentRulesNotExecuted(context);
 				return;
 			}
 #if SYNC_ONLY
@@ -111,10 +116,13 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		if (filteredValidators.Count == 0) {
 			// If there are no property validators to execute after running the conditions, bail out.
+			context.ExecutionReport.Add(propertyName, Components.Count > 0 ? RuleExecutionCategory.ConditionNotMet : RuleExecutionCategory.Succeeded);
+			RecordDependentRulesNotExecuted(context);
 			return;
 		}
 
 		var cascade = CascadeMode;
+		bool cascadeStopped = false;
 		IEnumerable<TElement> collection;
 
 		try {
@@ -181,6 +189,7 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 					// If there has been at least one failure, and our CascadeMode has been set to Stop
 					// then don't continue to the next rule
 					if (context.Failures.Count > totalFailuresInner && cascade == CascadeMode.Stop) {
+						cascadeStopped = true;
 						context.RestoreState();
 						goto AfterValidate; // 🙃
 					}
@@ -192,11 +201,25 @@ internal partial class CollectionPropertyRule<T, TElement> : RuleBase<T, IEnumer
 
 		AfterValidate:
 
+		// Record the outcome of this rule in the context's execution report.
+		// A rule that halted its remaining validators via CascadeMode.Stop is attributed
+		// as the source of the stop.
+		if (context.Failures.Count > totalFailures) {
+			context.ExecutionReport.Add(propertyName, cascadeStopped ? RuleExecutionCategory.CascadeStopped : RuleExecutionCategory.Failed);
+		}
+		else {
+			context.ExecutionReport.Add(propertyName, RuleExecutionCategory.Succeeded);
+		}
+
 		if (context.Failures.Count <= totalFailures && DependentRules != null) {
 			foreach (var dependentRule in DependentRules) {
 				cancellation.ThrowIfCancellationRequested();
 				await dependentRule.ValidateAsync(context, cancellation);
 			}
+		}
+		else if (DependentRules != null) {
+			// The rule did not succeed, so its dependent rules were never entered.
+			RecordDependentRulesNotExecuted(context);
 		}
 	}
 

@@ -73,4 +73,37 @@ public static partial class DefaultValidatorExtensions {
 			options.ThrowOnFailures();
 		}, cancellationToken);
 	}
+
+	/// <summary>
+	/// Validates the specified instance and returns both the validation result and an explicit
+	/// report of which rules were executed (and which were not, for example dependent rules
+	/// whose parent rule did not succeed). The <see cref="ValidationResult"/> is identical to
+	/// the one produced by a regular call to Validate, and no additional validator invocations
+	/// are performed. The report is scoped to this call and is never shared between calls.
+	/// </summary>
+	/// <param name="validator">The validator this method is extending.</param>
+	/// <param name="instance">The instance of the type we are validating.</param>
+	/// <returns>A tuple of the validation result and the rule execution report.</returns>
+	public static (ValidationResult Result, RuleExecutionReport Report) ValidateWithExecutionReport<T>(this IValidator<T> validator, T instance) {
+		var context = new ValidationContext<T>(instance);
+		var result = validator.Validate(context);
+		return (result, context.ExecutionReport);
+	}
+
+	/// <summary>
+	/// Validates the specified instance asynchronously and returns both the validation result and
+	/// an explicit report of which rules were executed (and which were not, for example dependent
+	/// rules whose parent rule did not succeed). The <see cref="ValidationResult"/> is identical to
+	/// the one produced by a regular call to ValidateAsync, and no additional validator invocations
+	/// are performed. The report is scoped to this call and is never shared between calls.
+	/// </summary>
+	/// <param name="validator">The validator this method is extending.</param>
+	/// <param name="instance">The instance of the type we are validating.</param>
+	/// <param name="cancellation">Cancellation token</param>
+	/// <returns>A tuple of the validation result and the rule execution report.</returns>
+	public static async Task<(ValidationResult Result, RuleExecutionReport Report)> ValidateWithExecutionReportAsync<T>(this IValidator<T> validator, T instance, CancellationToken cancellation = default) {
+		var context = new ValidationContext<T>(instance);
+		var result = await validator.ValidateAsync(context, cancellation);
+		return (result, context.ExecutionReport);
+	}
 }

@@ -200,6 +200,33 @@ internal abstract class RuleBase<T, TProperty, TValue> : IValidationRule<T, TVal
 
 	IEnumerable<IValidationRule> IValidationRule.DependentRules => DependentRules;
 
+	/// <summary>
+	/// Records all dependent rules (and their descendants) as <see cref="RuleExecutionCategory.NotExecuted"/>
+	/// in the context's execution report. Called when this rule did not complete successfully,
+	/// meaning its dependent rules were never entered.
+	/// </summary>
+	protected void RecordDependentRulesNotExecuted(ValidationContext<T> context) {
+		if (DependentRules == null) return;
+
+		foreach (var dependentRule in DependentRules) {
+			RecordRuleNotExecuted(context, dependentRule);
+		}
+	}
+
+	private static void RecordRuleNotExecuted(ValidationContext<T> context, IValidationRule rule) {
+		// Build the path the same way the rule itself would have, so the report is keyed
+		// by the actual rule identity even though the rule never ran.
+		string name = rule.PropertyName ?? rule.GetDisplayName(context);
+		string path = context.PropertyChain.BuildPropertyPath(name ?? string.Empty);
+		context.ExecutionReport.Add(path, RuleExecutionCategory.NotExecuted);
+
+		if (rule.DependentRules != null) {
+			foreach (var child in rule.DependentRules) {
+				RecordRuleNotExecuted(context, child);
+			}
+		}
+	}
+
 	string IValidationRule.GetDisplayName(IValidationContext context) =>
 		GetDisplayName(context != null ? ValidationContext<T>.GetFromNonGenericContext(context) : null);
 
