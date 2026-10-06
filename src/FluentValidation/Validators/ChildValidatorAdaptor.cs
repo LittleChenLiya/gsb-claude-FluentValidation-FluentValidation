@@ -107,8 +107,10 @@ public class ChildValidatorAdaptor<T,TProperty> : NoopPropertyValidator<T,TPrope
 	private void HandleCollectionIndex(ValidationContext<T> context, out object originalIndex, out object index) {
 		originalIndex = null;
 		if (context.MessageFormatter.PlaceholderValues.TryGetValue("CollectionIndex", out index)) {
-			context.RootContextData.TryGetValue("__FV_CollectionIndex", out originalIndex);
-			context.RootContextData["__FV_CollectionIndex"] = index;
+			// Note: writes go through the writable backing dictionary, as the context may be
+			// a child context whose public RootContextData is a read-only view.
+			context.WritableRootContextData.TryGetValue("__FV_CollectionIndex", out originalIndex);
+			context.WritableRootContextData["__FV_CollectionIndex"] = index;
 		}
 	}
 
@@ -116,10 +118,10 @@ public class ChildValidatorAdaptor<T,TProperty> : NoopPropertyValidator<T,TPrope
 		// Reset the collection index
 		if (index != null) {
 			if (originalIndex != null) {
-				context.RootContextData["__FV_CollectionIndex"] = originalIndex;
+				context.WritableRootContextData["__FV_CollectionIndex"] = originalIndex;
 			}
 			else {
-				context.RootContextData.Remove("__FV_CollectionIndex");
+				context.WritableRootContextData.Remove("__FV_CollectionIndex");
 			}
 		}
 	}

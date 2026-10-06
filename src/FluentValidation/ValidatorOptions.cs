@@ -59,6 +59,15 @@ public class ValidatorConfiguration {
 	public Severity Severity { get; set; } = Severity.Error;
 
 	/// <summary>
+	/// Defines how <c>RuleForEach</c> collection rules react when the collection being
+	/// validated is modified by user code whilst validation is in progress.
+	/// Defaults to <see cref="FluentValidation.CollectionMutationPolicy.UseSnapshot"/>,
+	/// which validates against a stable snapshot so that errors always keep their
+	/// original indices.
+	/// </summary>
+	public CollectionMutationPolicy CollectionMutationPolicy { get; set; } = CollectionMutationPolicy.UseSnapshot;
+
+	/// <summary>
 	/// Default property chain separator
 	/// </summary>
 	public string PropertyChainSeparator { get; set; } = ".";

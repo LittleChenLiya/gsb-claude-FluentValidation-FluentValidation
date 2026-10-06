@@ -404,6 +404,36 @@ public static class DefaultValidatorOptions {
 	}
 
 	/// <summary>
+	/// Applies a filter to a collection property. The predicate receives the element and its
+	/// original index within the source collection (the same index that appears in error
+	/// messages), giving each input an explicit identity. Errors raised for items that pass
+	/// the filter always keep their original index, even when preceding items are filtered out.
+	/// </summary>
+	/// <param name="rule">The current rule</param>
+	/// <param name="predicate">The condition</param>
+	/// <returns></returns>
+	public static IRuleBuilderInitialCollection<T, TCollectionElement> Where<T, TCollectionElement>(this IRuleBuilderInitialCollection<T, TCollectionElement> rule, Func<TCollectionElement, int, bool> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
+		Configurable(rule).IndexedFilter = predicate;
+		return rule;
+	}
+
+	/// <summary>
+	/// Applies an asynchronous filter to a collection property. The predicate receives the element
+	/// and its original index within the source collection (the same index that appears in error
+	/// messages), giving each input an explicit identity. Errors raised for items that pass
+	/// the filter always keep their original index, even when preceding items are filtered out.
+	/// </summary>
+	/// <param name="rule">The current rule</param>
+	/// <param name="predicate">The condition</param>
+	/// <returns></returns>
+	public static IRuleBuilderInitialCollection<T, TCollectionElement> WhereAsync<T, TCollectionElement>(this IRuleBuilderInitialCollection<T, TCollectionElement> rule, Func<TCollectionElement, int, Task<bool>> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
+		Configurable(rule).IndexedAsyncFilter = predicate;
+		return rule;
+	}
+
+	/// <summary>
 	/// Specifies a custom property name to use within the error message.
 	/// </summary>
 	/// <param name="rule">The current rule</param>

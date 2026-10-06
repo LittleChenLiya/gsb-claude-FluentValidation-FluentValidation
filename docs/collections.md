@@ -92,6 +92,63 @@ RuleForEach(x => x.Orders)
   .SetValidator(new OrderValidator());
 ```
 
+## Index stability, filtering and element identity
+
+`RuleForEach` gives every element an explicit, stable identity: its original index within the source collection. When `Where`/`WhereAsync` filters items out, errors raised for the remaining items still carry their *original* indices - the compressed position within the filtered sequence is never written to the client.
+
+For example, with three orders where the middle one is filtered out and the third one fails:
+
+```csharp
+public class CustomerValidator : AbstractValidator<Customer>
+{
+  public CustomerValidator()
+  {
+    RuleForEach(x => x.Orders)
+      .Where(order => order.ProductName != "FilteredOut")
+      .Must(order => order.Amount != 0);
+  }
+}
+```
+
+```csharp
+var customer = new Customer
+{
+  Orders = new List<Order>
+  {
+    new Order { ProductName = "First", Amount = 1 },       // index 0 - valid
+    new Order { ProductName = "FilteredOut", Amount = 1 }, // index 1 - skipped by Where
+    new Order { ProductName = "Third", Amount = 0 },       // index 2 - fails
+  }
+};
+
+var result = validator.Validate(customer);
+// result.Errors[0].PropertyName is "Orders[2]", not "Orders[1]".
+```
+
+If you need the element's identity inside the filter itself, use the `Where`/`WhereAsync` overloads that receive the original index:
+
+```csharp
+RuleForEach(x => x.Orders)
+  .Where((order, originalIndex) => originalIndex % 2 == 0)
+  .SetValidator(new OrderValidator());
+```
+
+The same original index is used everywhere: in the property path (`Orders[2]`), in the `{CollectionIndex}` message placeholder, in `OverrideIndexer` callbacks, and when a custom property name is set with `OverridePropertyName` (eg `Lines[2]`). Child validators invoked with `SetValidator` inherit the parent's path, so errors appear as eg `Orders[2].Amount`, and they receive a live, read-only view of the parent's `RootContextData`.
+
+Validation runs against a snapshot of the collection taken when the rule starts. If user code modifies the collection whilst validation is in progress (for example inside a `Custom` validator), errors can never be attached to the wrong item, because pre- and post-mutation views are never mixed. If you would rather reject such modifications outright, set the policy to throw:
+
+```csharp
+ValidatorOptions.Global.CollectionMutationPolicy = CollectionMutationPolicy.ThrowOnMutation;
+```
+
+An empty (or null) collection is valid and produces no errors.
+
+The behaviour described above is covered by a targeted test fixture, which can be run on its own with:
+
+```
+dotnet test src/FluentValidation.Tests/FluentValidation.Tests.csproj -f net10.0 --filter "FullyQualifiedName~CollectionIndexIdentityTests"
+```
+
 As of version 8.2, an alternative to using `RuleForEach` is to call `ForEach` as part of a regular `RuleFor`. With this approach you can combine rules that act upon the entire collection with rules which act upon individual elements within the collection. For example, imagine you have the following 2 rules:
 
 ```csharp

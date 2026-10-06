@@ -52,6 +52,26 @@ public enum ApplyConditionTo {
 }
 
 /// <summary>
+/// Specifies how <c>RuleForEach</c> collection rules react when the collection
+/// being validated is modified by user code whilst validation is in progress.
+/// </summary>
+public enum CollectionMutationPolicy {
+	/// <summary>
+	/// Validation continues against the snapshot of the collection that was captured
+	/// when the rule started executing. Errors are always associated with each item's
+	/// original index, and pre- and post-mutation views of the collection are never mixed.
+	/// This is the default behaviour.
+	/// </summary>
+	UseSnapshot = 0,
+
+	/// <summary>
+	/// An <see cref="InvalidOperationException"/> is thrown if the source collection
+	/// is modified whilst the collection rule is executing.
+	/// </summary>
+	ThrowOnMutation = 1,
+}
+
+/// <summary>
 /// Specifies the severity of a rule.
 /// </summary>
 public enum Severity {

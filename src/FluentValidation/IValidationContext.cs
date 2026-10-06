@@ -20,6 +20,7 @@ namespace FluentValidation;
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Internal;
 using Results;
 
@@ -76,10 +77,21 @@ internal interface IHasFailures {
 }
 
 /// <summary>
+/// Provides access to the writable dictionary that backs <see cref="IValidationContext.RootContextData"/>.
+/// Child contexts expose a read-only view of the root context data publicly, but framework
+/// components (eg the child validator adaptor) still need to flow state such as collection
+/// indices through the shared underlying dictionary.
+/// </summary>
+internal interface IWritableRootContextDataAccessor {
+	IDictionary<string, object> WritableRootContextData { get; }
+	bool IsRootContextDataReadOnly { get; }
+}
+
+/// <summary>
 /// Validation context
 /// </summary>
 /// <typeparam name="T"></typeparam>
-public class ValidationContext<T> : IValidationContext, IHasFailures {
+public class ValidationContext<T> : IValidationContext, IHasFailures, IWritableRootContextDataAccessor {
 	private IValidationContext _parentContext;
 
 	List<ValidationFailure> IHasFailures.Failures => Failures;
@@ -135,8 +147,54 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 
 	/// <summary>
 	/// Additional data associated with the validation request.
+	/// Root contexts expose a read-write dictionary. Child contexts (created for child
+	/// validators) expose a live read-only view of the root context's data: values set
+	/// on the root context are visible, but the child cannot modify them.
 	/// </summary>
-	public IDictionary<string, object> RootContextData { get; private protected set; } = new Dictionary<string, object>();
+	public IDictionary<string, object> RootContextData {
+		get => _readOnlyRootContextData ?? _writableRootContextData;
+		private protected set {
+			_writableRootContextData = value ?? new Dictionary<string, object>();
+			_readOnlyRootContextData = null;
+		}
+	}
+
+	private IDictionary<string, object> _writableRootContextData = new Dictionary<string, object>();
+	private ReadOnlyDictionary<string, object> _readOnlyRootContextData;
+
+	/// <summary>
+	/// The writable dictionary backing <see cref="RootContextData"/>. For child contexts this
+	/// is shared with the parent, even though the public view is read-only.
+	/// </summary>
+	internal IDictionary<string, object> WritableRootContextData => _writableRootContextData;
+
+	/// <summary>
+	/// Whether <see cref="RootContextData"/> is exposed as a read-only view (child contexts).
+	/// </summary>
+	internal bool IsRootContextDataReadOnly => _readOnlyRootContextData != null;
+
+	IDictionary<string, object> IWritableRootContextDataAccessor.WritableRootContextData => WritableRootContextData;
+	bool IWritableRootContextDataAccessor.IsRootContextDataReadOnly => IsRootContextDataReadOnly;
+
+	/// <summary>
+	/// Points this context at the parent's root context data. When <paramref name="readOnly"/>
+	/// is set, the public <see cref="RootContextData"/> becomes a live read-only view over the
+	/// shared dictionary, whilst framework components can still flow state through
+	/// <see cref="WritableRootContextData"/>.
+	/// </summary>
+	private void InheritRootContextData(IDictionary<string, object> writableSink, bool readOnly) {
+		_writableRootContextData = writableSink ?? new Dictionary<string, object>();
+		_readOnlyRootContextData = readOnly ? new ReadOnlyDictionary<string, object>(_writableRootContextData) : null;
+	}
+
+	private void InheritRootContextData(IValidationContext parent) {
+		if (parent is IWritableRootContextDataAccessor accessor) {
+			InheritRootContextData(accessor.WritableRootContextData, accessor.IsRootContextDataReadOnly);
+		}
+		else {
+			InheritRootContextData(parent?.RootContextData, readOnly: false);
+		}
+	}
 
 	/// <summary>
 	/// Property chain
@@ -213,25 +271,27 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 		if (context.InstanceToValidate is T instanceToValidate) {
 			var failures = (context is IHasFailures f) ? f.Failures : new List<ValidationFailure>();
 
-			return new ValidationContext<T>(instanceToValidate, context.PropertyChain, context.Selector, failures, ValidatorOptions.Global.MessageFormatterFactory()) {
+			var newContext = new ValidationContext<T>(instanceToValidate, context.PropertyChain, context.Selector, failures, ValidatorOptions.Global.MessageFormatterFactory()) {
 				IsChildContext = context.IsChildContext,
-				RootContextData = context.RootContextData,
 				ThrowOnFailures = context.ThrowOnFailures,
 				_parentContext = context.ParentContext,
 				IsAsync = context.IsAsync
 			};
+			newContext.InheritRootContextData(context);
+			return newContext;
 		}
 
 		if (context.InstanceToValidate == null) {
 			var failures = (context is IHasFailures f) ? f.Failures : new List<ValidationFailure>();
 
-			return new ValidationContext<T>(default, context.PropertyChain, context.Selector, failures, ValidatorOptions.Global.MessageFormatterFactory()) {
+			var newContext = new ValidationContext<T>(default, context.PropertyChain, context.Selector, failures, ValidatorOptions.Global.MessageFormatterFactory()) {
 				IsChildContext = context.IsChildContext,
-				RootContextData = context.RootContextData,
 				ThrowOnFailures = context.ThrowOnFailures,
 				_parentContext = context.ParentContext,
 				IsAsync = context.IsAsync
 			};
+			newContext.InheritRootContextData(context);
+			return newContext;
 		}
 
 		throw new InvalidOperationException($"Cannot validate instances of type '{context.InstanceToValidate.GetType().Name}'. This validator can only validate instances of type '{typeof(T).Name}'.");
@@ -245,12 +305,16 @@ public class ValidationContext<T> : IValidationContext, IHasFailures {
 	/// <param name="selector"></param>
 	/// <returns></returns>
 	public ValidationContext<TChild> CloneForChildValidator<TChild>(TChild instanceToValidate, bool preserveParentContext = false, IValidatorSelector selector = null) {
-		return new ValidationContext<TChild>(instanceToValidate, PropertyChain, selector ?? Selector, Failures, MessageFormatter) {
+		var childContext = new ValidationContext<TChild>(instanceToValidate, PropertyChain, selector ?? Selector, Failures, MessageFormatter) {
 			IsChildContext = true,
-			RootContextData = RootContextData,
 			_parentContext = preserveParentContext ? this : null,
 			IsAsync = IsAsync,
 		};
+
+		// The child context inherits the parent's property chain (via the constructor above)
+		// and receives a live read-only view of the parent's root context data.
+		childContext.InheritRootContextData(_writableRootContextData, readOnly: true);
+		return childContext;
 	}
 
 	internal void PrepareForChildCollectionValidator() {

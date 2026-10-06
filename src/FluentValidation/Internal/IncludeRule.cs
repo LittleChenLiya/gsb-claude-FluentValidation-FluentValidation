@@ -61,16 +61,16 @@ internal partial class IncludeRule<T> : PropertyRule<T, T>, IIncludeRule {
 		// If it is present already then we're in a situation where there are nested Include rules
 		// in which case only the root Include rule should add/remove the key.
 		// See https://github.com/FluentValidation/FluentValidation/issues/1989
-		bool shouldAddStateKey = !context.RootContextData.ContainsKey(MemberNameValidatorSelector.DisableCascadeKey);
+		bool shouldAddStateKey = !context.WritableRootContextData.ContainsKey(MemberNameValidatorSelector.DisableCascadeKey);
 
 		if (shouldAddStateKey) {
-			context.RootContextData[MemberNameValidatorSelector.DisableCascadeKey] = true;
+			context.WritableRootContextData[MemberNameValidatorSelector.DisableCascadeKey] = true;
 		}
 
 		await base.ValidateAsync(context, cancellation);
 
 		if (shouldAddStateKey) {
-			context.RootContextData.Remove(MemberNameValidatorSelector.DisableCascadeKey);
+			context.WritableRootContextData.Remove(MemberNameValidatorSelector.DisableCascadeKey);
 		}
 	}
 }

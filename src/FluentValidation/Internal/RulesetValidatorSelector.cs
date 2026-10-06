@@ -33,7 +33,12 @@ public class RulesetValidatorSelector : IValidatorSelector {
 	/// <param name="context">Contextual information</param>
 	/// <returns>Whether or not the validator can execute.</returns>
 	public virtual bool CanExecute(IValidationRule rule, string propertyPath, IValidationContext context) {
-		var executed = context.RootContextData.GetOrAdd("_FV_RuleSetsExecuted", () => new HashSet<string>());
+		// Use the writable backing dictionary: the context may be a child context whose
+		// public RootContextData is a read-only view.
+		var rootContextData = context is IWritableRootContextDataAccessor accessor
+			? accessor.WritableRootContextData
+			: context.RootContextData;
+		var executed = rootContextData.GetOrAdd("_FV_RuleSetsExecuted", () => new HashSet<string>());
 
 		if ((rule.RuleSets == null || rule.RuleSets.Length == 0) && _rulesetsToExecute.Any()) {
 			if (IsIncludeRule(rule)) {
