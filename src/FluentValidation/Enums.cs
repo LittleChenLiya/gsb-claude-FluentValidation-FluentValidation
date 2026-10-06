@@ -68,3 +68,38 @@ public enum Severity {
 	/// </summary>
 	Info
 }
+
+/// <summary>
+/// Specifies how a rule created with <c>RuleForEach</c> interacts with the source
+/// collection while validation is running.
+/// </summary>
+public enum CollectionSnapshotPolicy {
+	/// <summary>
+	/// The collection is enumerated directly while validation runs (the default).
+	/// Each element is still identified by its original index, but if user code
+	/// modifies the collection during validation the behaviour is determined by
+	/// the collection's own enumerator (many collections throw, others silently
+	/// shift elements, which can attach errors to the wrong item).
+	/// </summary>
+	None = 0,
+
+	/// <summary>
+	/// A read-only snapshot of the collection is materialized before validation begins
+	/// and validation runs against that snapshot. Every element keeps the identity
+	/// (original index) it had in the source collection, so user code modifying the
+	/// collection during validation cannot cause errors to be attached to the wrong item.
+	/// </summary>
+	Snapshot = 1,
+
+	/// <summary>
+	/// A read-only snapshot is materialized (as with <see cref="CollectionSnapshotPolicy.Snapshot"/>)
+	/// and, in addition, the source collection is checked for modification when validation
+	/// of the collection completes. If a modification is detected, an
+	/// <see cref="InvalidOperationException"/> is thrown and the (potentially mixed)
+	/// validation result is rejected instead of being returned to the caller.
+	/// Modification can only be detected for collections that expose a count
+	/// (<see cref="System.Collections.Generic.ICollection{T}"/> or
+	/// <see cref="System.Collections.ICollection"/>).
+	/// </summary>
+	SnapshotAndRejectMutation = 2,
+}

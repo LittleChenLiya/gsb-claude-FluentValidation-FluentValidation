@@ -92,6 +92,72 @@ RuleForEach(x => x.Orders)
   .SetValidator(new OrderValidator());
 ```
 
+### Original indexes and element identity
+
+Every element processed by `RuleForEach` has an explicit identity: its index in the *original* collection. Filtering with `Where`/`WhereAsync` does not renumber the remaining elements - errors are always associated with the original index, never with the compressed position an element happens to hold within the filtered sequence. The same applies when the property name is customized with `OverridePropertyName`, and to the `{CollectionIndex}` placeholder.
+
+For example, given three orders where the middle one is excluded by the filter and the third one fails validation, the error is reported against index `[2]`, not `[1]`:
+
+```csharp
+public class CustomerValidator : AbstractValidator<Customer>
+{
+  public CustomerValidator()
+  {
+    RuleForEach(x => x.Orders)
+      .Where(order => order != null) // filters out the middle (null) order
+      .SetValidator(new OrderValidator());
+  }
+}
+
+// customer.Orders = [ validOrder, null, invalidOrder ]
+var result = validator.Validate(customer);
+// result.Errors[0].PropertyName == "Orders[2].Total"  (not "Orders[1].Total")
+```
+
+If you need the index inside the filter itself, use the overloads of `Where`/`WhereAsync` that receive the element's original index:
+
+```csharp
+RuleForEach(x => x.Orders)
+  .Where((order, index) => index != 1) // skip the second order by its original index
+  .SetValidator(new OrderValidator());
+```
+
+Child validators attached with `SetValidator` (or `ChildRules`) inherit the parent property path (so error property names look like `Orders[2].Total`) and can read the root `RootContextData` dictionary.
+
+### Collection snapshots
+
+By default (`CollectionSnapshotPolicy.None`) `RuleForEach` enumerates the live collection while validation runs. If user code modifies the collection from within a validator, some collection types silently shift their remaining elements, which can attach errors to the wrong item. Calling `UseCollectionSnapshot` makes the rule validate a read-only snapshot of the collection that is materialized before validation begins, so every element keeps the identity (original index) it had when validation started:
+
+```csharp
+RuleForEach(x => x.Orders)
+  .UseCollectionSnapshot(CollectionSnapshotPolicy.Snapshot)
+  .Must(order => order.Total > 0);
+```
+
+With `CollectionSnapshotPolicy.SnapshotAndRejectMutation` (the default when calling `UseCollectionSnapshot()` without arguments) the source collection is additionally checked for modification once validation of the collection completes. If a modification is detected (for collections that expose a count), an `InvalidOperationException` is thrown and the potentially mixed validation result is rejected instead of being returned:
+
+```csharp
+RuleForEach(x => x.Orders)
+  .UseCollectionSnapshot(CollectionSnapshotPolicy.SnapshotAndRejectMutation)
+  .SetValidator(new OrderValidator());
+```
+
+Empty (and null) collections are valid under every policy and produce no errors.
+
+### Running the collection tests
+
+The behavior described above is covered by a focused test fixture. To run only these tests:
+
+```bash
+dotnet test src/FluentValidation.Tests/FluentValidation.Tests.csproj -f net10.0 --filter "FullyQualifiedName~CollectionSnapshotTests"
+```
+
+To also run the pre-existing `RuleForEach`/collection suites (confirming the default rule chain is unchanged):
+
+```bash
+dotnet test src/FluentValidation.Tests/FluentValidation.Tests.csproj -f net10.0 --filter "FullyQualifiedName~ForEachRuleTests|FullyQualifiedName~CollectionValidatorWithParentTests|FullyQualifiedName~CollectionSnapshotTests"
+```
+
 As of version 8.2, an alternative to using `RuleForEach` is to call `ForEach` as part of a regular `RuleFor`. With this approach you can combine rules that act upon the entire collection with rules which act upon individual elements within the collection. For example, imagine you have the following 2 rules:
 
 ```csharp

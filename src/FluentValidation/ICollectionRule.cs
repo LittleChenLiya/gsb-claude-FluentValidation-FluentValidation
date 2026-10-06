@@ -39,6 +39,26 @@ public interface ICollectionRule<T, TElement> : IValidationRule<T, TElement> {
 	public Func<TElement, Task<bool>> AsyncFilter { get; set; }
 
 	/// <summary>
+	/// Filter that should include/exclude items in the collection.
+	/// Receives the element and its explicit identity: the index of the element in the
+	/// original (unfiltered) source collection, not its position among the filtered items.
+	/// </summary>
+	public Func<TElement, int, bool> IndexedFilter { get; set; }
+
+	/// <summary>
+	/// Asynchronous filter that should include/exclude items in the collection.
+	/// Receives the element and its explicit identity: the index of the element in the
+	/// original (unfiltered) source collection, not its position among the filtered items.
+	/// </summary>
+	public Func<TElement, int, Task<bool>> IndexedAsyncFilter { get; set; }
+
+	/// <summary>
+	/// Specifies how the rule interacts with the source collection while validation
+	/// is running. The default is <see cref="CollectionSnapshotPolicy.None"/>.
+	/// </summary>
+	public CollectionSnapshotPolicy SnapshotPolicy { get; set; }
+
+	/// <summary>
 	/// Constructs the indexer in the property name associated with the error message.
 	/// By default this is "[" + index + "]"
 	/// </summary>

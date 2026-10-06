@@ -404,6 +404,50 @@ public static class DefaultValidatorOptions {
 	}
 
 	/// <summary>
+	/// Applies a filter to a collection property. The predicate receives the element's
+	/// explicit identity: its index in the original (unfiltered) source collection,
+	/// not its position among the filtered items.
+	/// </summary>
+	/// <param name="rule">The current rule</param>
+	/// <param name="predicate">The condition. The second parameter is the element's index in the original collection.</param>
+	/// <returns></returns>
+	public static IRuleBuilderInitialCollection<T, TCollectionElement> Where<T, TCollectionElement>(this IRuleBuilderInitialCollection<T, TCollectionElement> rule, Func<TCollectionElement, int, bool> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
+		Configurable(rule).IndexedFilter = predicate;
+		return rule;
+	}
+
+	/// <summary>
+	/// Applies an asynchronous filter to a collection property. The predicate receives the element's
+	/// explicit identity: its index in the original (unfiltered) source collection,
+	/// not its position among the filtered items.
+	/// </summary>
+	/// <param name="rule">The current rule</param>
+	/// <param name="predicate">The condition. The second parameter is the element's index in the original collection.</param>
+	/// <returns></returns>
+	public static IRuleBuilderInitialCollection<T, TCollectionElement> WhereAsync<T, TCollectionElement>(this IRuleBuilderInitialCollection<T, TCollectionElement> rule, Func<TCollectionElement, int, Task<bool>> predicate) {
+		ArgumentNullException.ThrowIfNull(predicate);
+		Configurable(rule).IndexedAsyncFilter = predicate;
+		return rule;
+	}
+
+	/// <summary>
+	/// Configures the rule to validate a read-only snapshot of the collection instead of
+	/// enumerating the live collection. Every element keeps the identity (original index)
+	/// it had when validation began, so user code modifying the collection during validation
+	/// cannot cause errors to be attached to the wrong item. Use
+	/// <see cref="CollectionSnapshotPolicy.SnapshotAndRejectMutation"/> to additionally
+	/// reject the result (by throwing) when such a modification is detected.
+	/// </summary>
+	/// <param name="rule">The current rule</param>
+	/// <param name="policy">The snapshot policy to use. Defaults to <see cref="CollectionSnapshotPolicy.SnapshotAndRejectMutation"/>.</param>
+	/// <returns></returns>
+	public static IRuleBuilderInitialCollection<T, TCollectionElement> UseCollectionSnapshot<T, TCollectionElement>(this IRuleBuilderInitialCollection<T, TCollectionElement> rule, CollectionSnapshotPolicy policy = CollectionSnapshotPolicy.SnapshotAndRejectMutation) {
+		Configurable(rule).SnapshotPolicy = policy;
+		return rule;
+	}
+
+	/// <summary>
 	/// Specifies a custom property name to use within the error message.
 	/// </summary>
 	/// <param name="rule">The current rule</param>
