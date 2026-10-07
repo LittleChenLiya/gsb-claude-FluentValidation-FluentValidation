@@ -86,6 +86,13 @@ public class ValidationFailure {
 	public Dictionary<string, object> FormattedMessagePlaceholderValues { get; set; }
 
 	/// <summary>
+	/// The exception thrown by the error message factory while building this failure's message.
+	/// Only populated when <see cref="ValidatorConfiguration.AdaptMessageFactoryExceptions"/> is enabled;
+	/// otherwise message factory exceptions propagate to the caller. Null for normal failures.
+	/// </summary>
+	public MessageFactoryException MessageFactoryException { get; set; }
+
+	/// <summary>
 	/// Creates a textual representation of the failure.
 	/// </summary>
 	public override string ToString() {

@@ -318,11 +318,27 @@ internal abstract class RuleBase<T, TProperty, TValue> : IValidationRule<T, TVal
 	/// <param name="component">The current rule component.</param>
 	/// <returns>Returns an error validation result.</returns>
 	protected ValidationFailure CreateValidationError(ValidationContext<T> context, TValue value, RuleComponent<T, TValue> component) {
-		var error = MessageBuilder != null
-			? MessageBuilder(new MessageBuilderContext<T, TValue>(context, value, component))
-			: component.GetErrorMessage(context, value);
+		string error;
+		MessageFactoryException messageFactoryException = null;
+
+		try {
+			error = MessageBuilder != null
+				? MessageBuilder(new MessageBuilderContext<T, TValue>(context, value, component))
+				: component.GetErrorMessage(context, value);
+		}
+		catch (Exception ex) when (ValidatorOptions.Global.AdaptMessageFactoryExceptions) {
+			// The rule has already failed, but the message factory callback threw.
+			// Adapt the exception into a failure so the rule isn't treated as a pass,
+			// preserving the property path, the attempted value and the callback cause.
+			messageFactoryException = new MessageFactoryException(context.PropertyPath, value, ex);
+			error = messageFactoryException.Message;
+		}
 
 		var failure = new ValidationFailure(context.PropertyPath, error, value);
+
+		if (messageFactoryException != null) {
+			failure.MessageFactoryException = messageFactoryException;
+		}
 
 		failure.FormattedMessagePlaceholderValues = new Dictionary<string, object>(context.MessageFormatter.PlaceholderValues);
 		failure.ErrorCode = component.ErrorCode ?? ValidatorOptions.Global.ErrorCodeResolver(component.Validator);

@@ -118,6 +118,24 @@ public class ValidatorConfiguration {
 	/// </summary>
 	public Func<ValidationFailure, IValidationContext, object, IValidationRule, IRuleComponent, ValidationFailure> OnFailureCreated { get; set; }
 
+	/// <summary>
+	/// <para>
+	/// When enabled, exceptions thrown by error message factories (for example <c>WithMessage</c>
+	/// callbacks or a rule-level MessageBuilder) after a rule has already failed are adapted into
+	/// a <see cref="ValidationFailure"/> instead of propagating. The adapted failure preserves the
+	/// property path and the attempted value, and the callback exception is exposed via
+	/// <see cref="ValidationFailure.MessageFactoryException"/> (as a <see cref="MessageFactoryException"/>
+	/// whose InnerException is the original callback exception). The failure still counts as a
+	/// validation failure (it is not treated as a pass) and participates in cascade mode
+	/// evaluation like any other failure.
+	/// </para>
+	/// <para>
+	/// Defaults to <see langword="false"/>, in which case message factory exceptions propagate
+	/// to the caller unchanged (the original behaviour).
+	/// </para>
+	/// </summary>
+	public bool AdaptMessageFactoryExceptions { get; set; }
+
 	static string DefaultPropertyNameResolver(Type type, MemberInfo memberInfo, LambdaExpression expression) {
 		if (expression != null) {
 			var chain = PropertyChain.FromExpression(expression);
