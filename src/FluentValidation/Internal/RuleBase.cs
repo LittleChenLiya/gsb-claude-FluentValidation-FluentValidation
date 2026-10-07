@@ -318,9 +318,23 @@ internal abstract class RuleBase<T, TProperty, TValue> : IValidationRule<T, TVal
 	/// <param name="component">The current rule component.</param>
 	/// <returns>Returns an error validation result.</returns>
 	protected ValidationFailure CreateValidationError(ValidationContext<T> context, TValue value, RuleComponent<T, TValue> component) {
-		var error = MessageBuilder != null
-			? MessageBuilder(new MessageBuilderContext<T, TValue>(context, value, component))
-			: component.GetErrorMessage(context, value);
+		string error;
+		MessageFactoryException messageFactoryException = null;
+
+		try {
+			error = MessageBuilder != null
+				? MessageBuilder(new MessageBuilderContext<T, TValue>(context, value, component))
+				: component.GetErrorMessage(context, value);
+		}
+		catch (Exception ex) when (ValidatorOptions.Global.AdaptMessageFactoryExceptions) {
+			// The rule has already failed at this point - only the message factory callback threw.
+			// Adapt the exception into a failure (rather than letting it propagate) so that it's
+			// not treated as a successful validation, the rule path and callback cause are preserved,
+			// and remaining rules continue to execute according to the configured cascade modes
+			// without re-executing any validators.
+			messageFactoryException = new MessageFactoryException(context.PropertyPath, ex);
+			error = messageFactoryException.Message;
+		}
 
 		var failure = new ValidationFailure(context.PropertyPath, error, value);
 
@@ -333,6 +347,12 @@ internal abstract class RuleBase<T, TProperty, TValue> : IValidationRule<T, TVal
 
 		if (component.CustomStateProvider != null) {
 			failure.CustomState = component.CustomStateProvider(context, value);
+		}
+
+		if (messageFactoryException != null) {
+			// Preserve the callback cause alongside the original failure.
+			messageFactoryException.Failure = failure;
+			failure.CustomState = messageFactoryException;
 		}
 
 		if (ValidatorOptions.Global.OnFailureCreated != null) {
